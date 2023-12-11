@@ -14,6 +14,8 @@ trait FileService[F[_]]:
 
   def uploadFile(path: String, filename: String, fileBody: Stream[F, Byte]): F[Result[String]]
 
+  def deleteResource(resourceName: String, path: String): F[Result[String]]
+
 
 object FileService {
 
@@ -38,7 +40,7 @@ object FileService {
     }
 
     def uploadFile(path: String, filename: String, fileBody: Stream[F, Byte]): F[Result[String]] = {
-      val destinationPath = Path.fromNioPath(java.nio.file.Paths.get(FileUtils.rootPath+"/"+path))
+      val destinationPath = Path.fromNioPath(java.nio.file.Paths.get(FileUtils.rootPath + "/" + path))
       val fullPath = destinationPath / filename
       // 创建 Flags
       val flags = Flags.Write
@@ -50,6 +52,39 @@ object FileService {
         .map {
           case Right(_) => Result(200, None, "File uploaded successfully")
           case Left(e) => Result(400, None, e.getMessage)
+        }
+    }
+
+    def deleteResource(resourceName: String, path: String): F[Result[String]] = {
+      val resourcePath = Path.fromNioPath(java.nio.file.Paths.get(FileUtils.rootPath + "/" + path + "/" + resourceName))
+      Files[F].isDirectory(resourcePath).flatMap {
+        case true =>
+          // 是文件夹，递归删除文件夹及其内容
+          deleteDirectoryRecursively(resourcePath)
+        case false =>
+          // 是文件，直接删除
+          Files[F].deleteIfExists(resourcePath).attempt.map {
+            case Right(_) => Result(200, Some("File deleted successfully"), "Success")
+            case Left(e) => Result(400, None, e.getMessage)
+          }
+      }
+    }
+
+    private def deleteDirectoryRecursively(path: Path)(implicit F: Concurrent[F]): F[Result[String]] = {
+      Files[F].walk(path)
+        .evalMap(p => Files[F].deleteIfExists(p).attempt)
+        .compile
+        .drain
+        .attempt
+        .flatMap {
+          case Right(_) =>
+            // 删除文件夹内容后，删除文件夹本身
+            Files[F].deleteIfExists(path).attempt.map {
+              case Right(_) => Result(200, Some("Directory deleted successfully"), "Success")
+              case Left(e) => Result(400, None, e.getMessage)
+            }
+          case Left(e) =>
+            Result(400, None, e.getMessage).pure[F]
         }
     }
 
