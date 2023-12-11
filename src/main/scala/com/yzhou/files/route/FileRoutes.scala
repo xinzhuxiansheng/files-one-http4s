@@ -21,12 +21,13 @@ import scala.util.Try
 
 
 case class CreateFolderParams(name: String, path: String)
+
 case class DeleteResourceParams(resourceName: String, path: String)
 
 case class FileDesc(name: String, fullName: String, isDic: Boolean, file: File)
 
-object FileRoutes :
-  def fileServiceRoutes[F[_] : Concurrent : Async: Applicative: Files](fileService: FileService[F]): HttpRoutes[F] =
+object FileRoutes:
+  def fileServiceRoutes[F[_] : Concurrent : Async : Applicative : Files](fileService: FileService[F]): HttpRoutes[F] =
     val dsl = new Http4sDsl[F] {}
     import dsl.*
     import org.http4s.circe.CirceEntityEncoder.*
@@ -88,10 +89,10 @@ object FileRoutes :
           resp <- Ok(result)
         } yield resp
 
-      case req@GET -> Root / "download"  =>
+      case req@GET -> Root / "download" =>
         val queryParams = req.uri.query.params
         val fileName = queryParams.getOrElse("name", "")
-        val fs2FilePath = Fs2Path(FileUtils.rootPath+"/" + fileName)
+        val fs2FilePath = Fs2Path(FileUtils.rootPath + "/" + fileName)
 
         Files[F].exists(fs2FilePath).flatMap {
           case true =>
@@ -103,6 +104,25 @@ object FileRoutes :
             NotFound(s"File not found: $fileName")
         }
 
+      case req@GET -> Root / "isDirectory" =>
+        val queryParams = req.uri.query.params
+        val name = queryParams.getOrElse("name", "")
+        for {
+          list <- fileService.isDirectory(name)
+          resp <- Ok(list)
+        } yield resp
+
+      case req@GET -> Root / "checkDirectory" =>
+        val queryParams = req.uri.query.params
+        val path = queryParams.getOrElse("path", "")
+        (for {
+          list <- fileService.checkDirectory(path)
+          resp <- Ok(list)
+        } yield resp).handleErrorWith {
+          // 处理发生的异常
+          case e: Exception =>
+            InternalServerError(s"服务器错误: ${e.getMessage}")
+        }
     }
 
 
